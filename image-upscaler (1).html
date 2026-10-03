@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enlarger — Photo Upscale &amp; Restoration Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Space+Grotesk:wght@400;500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --bg: #17140f;
+    --bg-well: #0f0d0a;
+    --panel: #221e18;
+    --panel-alt: #2b2620;
+    --line: #3a352c;
+    --paper: #f1ead9;
+    --text: #ece4d4;
+    --text-dim: #a99d88;
+    --amber: #e8973c;
+    --amber-dim: #7a5628;
+    --teal: #4c8177;
+    --warn: #c1583b;
+    --radius: 3px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 15% -10%, #241f18 0%, transparent 45%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter', system-ui, sans-serif;
+    min-height:100vh;
+  }
+  ::selection{background:var(--amber);color:#1a1408;}
+
+  a{color:var(--amber);}
+
+  .frame{
+    max-width:1280px;
+    margin:0 auto;
+    padding:28px 24px 60px;
+  }
+
+  header.masthead{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:24px;
+    border-bottom:1px solid var(--line);
+    padding-bottom:18px;
+    margin-bottom:24px;
+    flex-wrap:wrap;
+  }
+  .masthead h1{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:clamp(28px, 4vw, 40px);
+    letter-spacing:-0.01em;
+    margin:0 0 6px 0;
+    color:var(--paper);
+  }
+  .masthead .sub{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:13px;
+    color:var(--text-dim);
+    max-width:46ch;
+    line-height:1.5;
+  }
+  .dial{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:12px;
+    color:var(--text-dim);
+    text-align:right;
+    line-height:1.7;
+  }
+  .dial b{color:var(--amber);font-weight:500;}
+
+  .workspace{
+    display:grid;
+    grid-template-columns:300px 1fr;
+    gap:22px;
+    align-items:start;
+  }
+  @media (max-width:880px){
+    .workspace{grid-template-columns:1fr;}
+  }
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:18px;
+  }
+
+  .panel + .panel{margin-top:18px;}
+
+  .panel h2{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:12px;
+    font-weight:600;
+    letter-spacing:0.04em;
+    color:var(--amber);
+    margin:0 0 14px 0;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .panel h2::before{
+    content:"";
+    width:6px;height:6px;
+    background:var(--amber);
+    border-radius:50%;
+    display:inline-block;
+  }
+
+  /* dropzone */
+  .drop{
+    border:1.5px dashed var(--line);
+    border-radius:var(--radius);
+    padding:22px 14px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.drag{
+    border-color:var(--amber);
+    background:var(--panel-alt);
+  }
+  .drop p{margin:0;font-size:13px;color:var(--text-dim);line-height:1.5;}
+  .drop strong{color:var(--paper);font-weight:500;}
+  .drop input{display:none;}
+
+  /* filmstrip */
+  .filmstrip{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    margin-top:14px;
+    max-height:280px;
+    overflow-y:auto;
+  }
+  .job{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:6px;
+    border-radius:var(--radius);
+    border:1px solid transparent;
+    cursor:pointer;
+    background:var(--bg-well);
+  }
+  .job:hover{border-color:var(--line);}
+  .job.active{border-color:var(--amber);background:var(--panel-alt);}
+  .job img{
+    width:40px;height:40px;object-fit:cover;
+    border-radius:2px;
+    background:var(--panel-alt);
+    flex-shrink:0;
+  }
+  .job .meta{min-width:0;flex:1;}
+  .job .name{
+    font-size:12px;color:var(--paper);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .job .status{font-size:11px;color:var(--text-dim);font-family:'Space Grotesk',sans-serif;}
+  .job .status.done{color:var(--teal);}
+  .job .status.working{color:var(--amber);}
+  .job button.remove{
+    background:none;border:none;color:var(--text-dim);
+    cursor:pointer;font-size:15px;line-height:1;padding:4px;
+  }
+  .job button.remove:hover{color:var(--warn);}
+
+  /* controls */
+  label.field{
+    display:block;
+    margin-bottom:14px;
+  }
+  label.field:last-child{margin-bottom:0;}
+  .field .row{
+    display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:6px;
+  }
+  .field .row span:first-child{
+    font-size:12px;color:var(--text-dim);
+    font-family:'Space Grotesk',sans-serif;
+  }
+  .field .row span.val{
+    font-size:12px;color:var(--amber);
+    font-family:'Space Grotesk',sans-serif;
+  }
+  input[type=range]{
+    -webkit-appearance:none;
+    width:100%;height:3px;
+    background:var(--line);
+    border-radius:2px;
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:13px;height:13px;
+    border-radius:50%;
+    background:var(--amber);
+    cursor:pointer;
+    border:2px solid var(--bg-well);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:13px;height:13px;border-radius:50%;
+    background:var(--amber);cursor:pointer;border:2px solid var(--bg-well);
+  }
+
+  .seg{
+    display:flex;
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    overflow:hidden;
+  }
+  .seg button{
+    flex:1;
+    background:var(--bg-well);
+    border:none;
+    color:var(--text-dim);
+    font-family:'Space Grotesk',sans-serif;
+    font-size:12px;
+    padding:8px 4px;
+    cursor:pointer;
+    border-right:1px solid var(--line);
+  }
+  .seg button:last-child{border-right:none;}
+  .seg button.active{background:var(--amber);color:#1a1408;font-weight:600;}
+
+  .toggle-row{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .toggle-row span{font-size:12px;color:var(--text-dim);font-family:'Space Grotesk',sans-serif;}
+  .switch{
+    width:36px;height:20px;border-radius:10px;
+    background:var(--line);position:relative;cursor:pointer;
+    flex-shrink:0;
+    transition:background .15s;
+  }
+  .switch.on{background:var(--amber);}
+  .switch::after{
+    content:"";position:absolute;top:2px;left:2px;
+    width:16px;height:16px;border-radius:50%;background:var(--paper);
+    transition:left .15s;
+  }
+  .switch.on::after{left:18px;}
+
+  button.primary{
+    width:100%;
+    background:var(--amber);
+    color:#1a1408;
+    border:none;
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:600;
+    font-size:13px;
+    padding:12px;
+    border-radius:var(--radius);
+    cursor:pointer;
+    margin-top:4px;
+  }
+  button.primary:hover{background:#f0a552;}
+  button.primary:disabled{background:var(--amber-dim);color:var(--text-dim);cursor:not-allowed;}
+
+  button.ghost{
+    width:100%;
+    background:transparent;
+    color:var(--paper);
+    border:1px solid var(--line);
+    font-family:'Space Grotesk',sans-serif;
+    font-size:12px;
+    padding:10px;
+    border-radius:var(--radius);
+    cursor:pointer;
+    margin-top:8px;
+  }
+  button.ghost:hover{border-color:var(--amber);color:var(--amber);}
+  button.ghost:disabled{opacity:.4;cursor:not-allowed;}
+
+  .preset-note{
+    font-size:11px;color:var(--text-dim);line-height:1.5;margin-top:10px;
+    font-style:italic;
+  }
+
+  /* main preview */
+  .stage{
+    background:var(--bg-well);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    min-height:420px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    overflow:hidden;
+    padding:20px;
+  }
+  .stage.empty .placeholder{
+    text-align:center;color:var(--text-dim);
+    font-family:'Space Grotesk',sans-serif;
+    font-size:13px;
+    max-width:320px;
+    line-height:1.6;
+  }
+  .compare{
+    position:relative;
+    max-width:100%;
+    max-height:70vh;
+    display:none;
+  }
+  .compare.show{display:block;}
+  .compare img, .compare canvas{
+    display:block;
+    max-width:100%;
+    max-height:70vh;
+    width:auto;height:auto;
+    user-select:none;
+    pointer-events:none;
+  }
+  .compare .after-wrap{
+    position:absolute;top:0;left:0;height:100%;
+    overflow:hidden;
+    width:50%;
+    border-right:1px solid var(--amber);
+  }
+  .compare .after-wrap img, .compare .after-wrap canvas{max-height:70vh;}
+  .compare .tag{
+    position:absolute;top:10px;
+    font-family:'Space Grotesk',sans-serif;
+    font-size:10px;letter-spacing:.05em;
+    background:rgba(15,13,10,.75);
+    color:var(--paper);
+    padding:3px 8px;
+    border-radius:2px;
+    pointer-events:none;
+  }
+  .compare .tag.before{right:10px;}
+  .compare .tag.after{left:10px;}
+  .slider-handle{
+    position:absolute;top:0;bottom:0;
+    width:2px;background:var(--amber);
+    left:50%;
+    cursor:ew-resize;
+    pointer-events:none;
+  }
+  .slider-handle::after{
+    content:"⇔";
+    position:absolute;top:50%;left:50%;
+    transform:translate(-50%,-50%);
+    width:28px;height:28px;
+    background:var(--amber);
+    color:#1a1408;
+    border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;
+  }
+  .slider-range{
+    position:absolute;inset:0;
+    -webkit-appearance:none;
+    width:100%;height:100%;
+    background:transparent;
+    margin:0;
+    cursor:ew-resize;
+    opacity:0;
+  }
+  .stage-toolbar{
+    position:absolute;bottom:12px;left:12px;right:12px;
+    display:flex;justify-content:space-between;align-items:center;
+    font-family:'Space Grotesk',sans-serif;
+    font-size:11px;color:var(--text-dim);
+    pointer-events:none;
+  }
+  .stage-toolbar span{background:rgba(15,13,10,.7);padding:3px 8px;border-radius:2px;}
+
+  .stage-actions{
+    display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;
+  }
+  .stage-actions button{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:12px;font-weight:500;
+    padding:10px 16px;
+    border-radius:var(--radius);
+    cursor:pointer;
+    border:1px solid var(--line);
+    background:var(--panel);
+    color:var(--paper);
+  }
+  .stage-actions button.hi{
+    background:var(--amber);border-color:var(--amber);color:#1a1408;font-weight:600;
+  }
+  .stage-actions button:hover{border-color:var(--amber);}
+  .stage-actions button:disabled{opacity:.4;cursor:not-allowed;}
+
+  .note-strip{
+    margin-top:14px;
+    font-size:12px;
+    color:var(--text-dim);
+    line-height:1.6;
+    border-left:2px solid var(--amber-dim);
+    padding-left:12px;
+  }
+  .note-strip b{color:var(--text);font-weight:500;}
+
+  footer.legal{
+    margin-top:34px;
+    font-family:'Space Grotesk',sans-serif;
+    font-size:11px;
+    color:var(--text-dim);
+    text-align:center;
+    border-top:1px solid var(--line);
+    padding-top:16px;
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+
+  <header class="masthead">
+    <div>
+      <h1>Enlarger</h1>
+      <div class="sub">A browser-based darkroom for upscaling and restoring photos — single frames or a full batch, with a before/after loupe before anything gets saved.</div>
+    </div>
+    <div class="dial">
+      RUNS ENTIRELY <b>ON-DEVICE</b><br>
+      NO UPLOAD · NO SERVER<br>
+      <span id="queueCount">0 images queued</span>
+    </div>
+  </header>
+
+  <div class="workspace">
+
+    <!-- LEFT: intake + controls -->
+    <div>
+      <div class="panel">
+        <h2>Load photos</h2>
+        <div class="drop" id="drop">
+          <p><strong>Drop images here</strong><br>or click to browse<br>JPEG · PNG · WebP — one or many</p>
+          <input type="file" id="fileInput" accept="image/*" multiple>
+        </div>
+        <div class="filmstrip" id="filmstrip"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Enlargement</h2>
+        <label class="field">
+          <div class="row"><span>Target size</span></div>
+          <div class="seg" id="scaleSeg">
+            <button data-scale="2">2×</button>
+            <button data-scale="3">3×</button>
+            <button data-scale="4" class="active">4×</button>
+            <button data-scale="fit4k">Fit 4K</button>
+          </div>
+        </label>
+
+        <div class="toggle-row">
+          <span>Restoration mode (denoise)</span>
+          <div class="switch on" id="denoiseSwitch"></div>
+        </div>
+
+        <label class="field">
+          <div class="row"><span>Sharpen / detail recovery</span><span class="val" id="sharpVal">55</span></div>
+          <input type="range" id="sharp" min="0" max="100" value="55">
+        </label>
+        <label class="field">
+          <div class="row"><span>Contrast</span><span class="val" id="contrastVal">+8</span></div>
+          <input type="range" id="contrast" min="-40" max="40" value="8">
+        </label>
+        <label class="field">
+          <div class="row"><span>Color / saturation</span><span class="val" id="satVal">+6</span></div>
+          <input type="range" id="sat" min="-40" max="40" value="6">
+        </label>
+
+        <button class="ghost" id="presetBtn">Apply "Ultra HD Realistic" preset</button>
+        <p class="preset-note">This sharpens, denoises and cleanly resamples your original — it doesn't invent detail a generative model would. For very soft or low-res source photos, expect a cleaner, crisper 4K frame rather than new texture.</p>
+      </div>
+    </div>
+
+    <!-- RIGHT: stage -->
+    <div>
+      <div class="panel" style="padding:16px;">
+        <div class="stage empty" id="stage">
+          <div class="placeholder" id="placeholder">Load a photo on the left to see it here.<br>Process it, then drag the divider to compare before and after.</div>
+
+          <div class="compare" id="compare">
+            <img id="beforeImg" alt="Original">
+            <div class="after-wrap" id="afterWrap">
+              <canvas id="afterCanvas"></canvas>
+            </div>
+            <span class="tag before">ORIGINAL</span>
+            <span class="tag after">ENHANCED</span>
+            <div class="slider-handle" id="handle"></div>
+            <input type="range" class="slider-range" id="sliderRange" min="0" max="100" value="50">
+            <div class="stage-toolbar">
+              <span id="dimsBefore">—</span>
+              <span id="dimsAfter">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stage-actions">
+          <button class="hi" id="processBtn" disabled>Process this photo</button>
+          <button id="processAllBtn" disabled>Process all queued</button>
+          <button id="saveBtn" disabled>Save to device…</button>
+          <button id="saveAllBtn" disabled>Save all as .zip</button>
+        </div>
+
+        <div class="note-strip" id="statusNote">
+          <b>Ready.</b> Nothing is uploaded anywhere — every step above runs in this browser tab, and files only leave the tab when you choose to save them.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="legal">Enlarger works fully offline once loaded. Closing this tab clears everything — save any result you want to keep.</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- state ----------
+  let jobs = [];          // {id, file, name, srcURL, srcImg, w, h, resultCanvas, status}
+  let activeId = null;
+  let scaleMode = "4";    // "2","3","4","fit4k"
+  let denoiseOn = true;
+  const MAX_EDGE = 4096;  // hard ceiling so a phone/laptop doesn't choke
+
+  const el = (id) => document.getElementById(id);
+  const filmstrip = el('filmstrip');
+  const queueCount = el('queueCount');
+  const stage = el('stage');
+  const placeholder = el('placeholder');
+  const compare = el('compare');
+  const beforeImg = el('beforeImg');
+  const afterCanvas = el('afterCanvas');
+  const afterWrap = el('afterWrap');
+  const handle = el('handle');
+  const sliderRange = el('sliderRange');
+  const dimsBefore = el('dimsBefore');
+  const dimsAfter = el('dimsAfter');
+  const processBtn = el('processBtn');
+  const processAllBtn = el('processAllBtn');
+  const saveBtn = el('saveBtn');
+  const saveAllBtn = el('saveAllBtn');
+  const statusNote = el('statusNote');
+
+  // ---------- intake ----------
+  const drop = el('drop');
+  const fileInput = el('fileInput');
+  drop.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => addFiles(e.target.files));
+
+  ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, (e)=>{
+    e.preventDefault(); drop.classList.add('drag');
+  }));
+  ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, (e)=>{
+    e.preventDefault(); drop.classList.remove('drag');
+  }));
+  drop.addEventListener('drop', (e) => addFiles(e.dataTransfer.files));
+
+  function addFiles(fileList){
+    const files = Array.from(fileList || []).filter(f => f.type.startsWith('image/'));
+    files.forEach(file => {
+      const id = 'job_' + Math.random().toString(36).slice(2,10);
+      const srcURL = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const job = jobs.find(j => j.id === id);
+        if(!job) return;
+        job.w = img.naturalWidth; job.h = img.naturalHeight;
+        job.srcImg = img;
+        renderFilmstrip();
+        if(activeId === id) showJob(id);
+      };
+      img.src = srcURL;
+      jobs.push({ id, file, name: file.name, srcURL, srcImg: null, w:0, h:0, resultCanvas:null, status:'queued' });
+    });
+    renderFilmstrip();
+    if(!activeId && jobs.length) selectJob(jobs[0].id);
+    updateGlobalButtons();
+  }
+
+  function renderFilmstrip(){
+    filmstrip.innerHTML = '';
+    jobs.forEach(job => {
+      const row = document.createElement('div');
+      row.className = 'job' + (job.id === activeId ? ' active' : '');
+      row.addEventListener('click', () => selectJob(job.id));
+
+      const thumb = document.createElement('img');
+      thumb.src = job.srcURL;
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const name = document.createElement('div');
+      name.className = 'name'; name.textContent = job.name;
+      const status = document.createElement('div');
+      status.className = 'status' + (job.status === 'done' ? ' done' : job.status === 'working' ? ' working' : '');
+      status.textContent = job.status === 'done' ? 'enhanced ✓' : job.status === 'working' ? 'processing…' : (job.w ? job.w+'×'+job.h : 'loading…');
+      meta.appendChild(name); meta.appendChild(status);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove'; removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', (e) => { e.stopPropagation(); removeJob(job.id); });
+
+      row.appendChild(thumb); row.appendChild(meta); row.appendChild(removeBtn);
+      filmstrip.appendChild(row);
+    });
+    queueCount.textContent = jobs.length + (jobs.length === 1 ? ' image queued' : ' images queued');
+  }
+
+  function removeJob(id){
+    const idx = jobs.findIndex(j => j.id === id);
+    if(idx === -1) return;
+    URL.revokeObjectURL(jobs[idx].srcURL);
+    jobs.splice(idx,1);
+    if(activeId === id){
+      activeId = jobs.length ? jobs[0].id : null;
+      if(activeId) showJob(activeId); else clearStage();
+    }
+    renderFilmstrip();
+    updateGlobalButtons();
+  }
+
+  function selectJob(id){
+    activeId = id;
+    renderFilmstrip();
+    showJob(id);
+    updateGlobalButtons();
+  }
+
+  function clearStage(){
+    stage.classList.add('empty');
+    compare.classList.remove('show');
+    processBtn.disabled = true;
+    saveBtn.disabled = true;
+  }
+
+  function showJob(id){
+    const job = jobs.find(j => j.id === id);
+    if(!job || !job.srcImg){ clearStage(); return; }
+    stage.classList.remove('empty');
+    beforeImg.src = job.srcURL;
+    dimsBefore.textContent = 'original ' + job.w + '×' + job.h;
+    processBtn.disabled = false;
+
+    if(job.resultCanvas){
+      compare.classList.add('show');
+      paintAfter(job.resultCanvas);
+      dimsAfter.textContent = 'enhanced ' + job.resultCanvas.width + '×' + job.resultCanvas.height;
+      saveBtn.disabled = false;
+    } else {
+      compare.classList.remove('show');
+      saveBtn.disabled = true;
+    }
+  }
+
+  function paintAfter(canvas){
+    afterCanvas.width = canvas.width;
+    afterCanvas.height = canvas.height;
+    afterCanvas.getContext('2d').drawImage(canvas, 0, 0);
+    setSlider(sliderRange.value);
+  }
+
+  function setSlider(v){
+    afterWrap.style.width = v + '%';
+    handle.style.left = v + '%';
+  }
+  sliderRange.addEventListener('input', (e) => setSlider(e.target.value));
+
+  // ---------- controls ----------
+  const scaleSeg = el('scaleSeg');
+  scaleSeg.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      scaleSeg.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      scaleMode = btn.dataset.scale;
+    });
+  });
+
+  const denoiseSwitch = el('denoiseSwitch');
+  denoiseSwitch.addEventListener('click', () => {
+    denoiseOn = !denoiseOn;
+    denoiseSwitch.classList.toggle('on', denoiseOn);
+  });
+
+  const sharp = el('sharp'), contrast = el('contrast'), sat = el('sat');
+  const sharpVal = el('sharpVal'), contrastVal = el('contrastVal'), satVal = el('satVal');
+  const fmtSigned = (n) => (n > 0 ? '+' + n : String(n));
+  sharp.addEventListener('input', () => sharpVal.textContent = sharp.value);
+  contrast.addEventListener('input', () => contrastVal.textContent = fmtSigned(+contrast.value));
+  sat.addEventListener('input', () => satVal.textContent = fmtSigned(+sat.value));
+
+  el('presetBtn').addEventListener('click', () => {
+    scaleMode = 'fit4k';
+    scaleSeg.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.scale === 'fit4k'));
+    denoiseOn = true; denoiseSwitch.classList.add('on');
+    sharp.value = 68; sharpVal.textContent = 68;
+    contrast.value = 10; contrastVal.textContent = '+10';
+    sat.value = 8; satVal.textContent = '+8';
+  });
+
+  function updateGlobalButtons(){
+    const anyLoaded = jobs.some(j => j.srcImg);
+    const anyDone = jobs.some(j => j.resultCanvas);
+    processAllBtn.disabled = !anyLoaded;
+    saveAllBtn.disabled = !anyDone;
+  }
+
+  // ---------- image pipeline ----------
+  function targetDims(w, h){
+    let factor;
+    if(scaleMode === 'fit4k'){
+      const longEdge = Math.max(w, h);
+      factor = 3840 / longEdge;
+      if(factor < 1) factor = 1; // never shrink
+    } else {
+      factor = parseInt(scaleMode, 10);
+    }
+    let tw = Math.round(w * factor);
+    let th = Math.round(h * factor);
+    const longest = Math.max(tw, th);
+    if(longest > MAX_EDGE){
+      const clamp = MAX_EDGE / longest;
+      tw = Math.round(tw * clamp);
+      th = Math.round(th * clamp);
+    }
+    return { tw, th };
+  }
+
+  // step-wise upscale (repeated 2x passes resample more cleanly than one huge jump)
+  function upscaleStepwise(img, tw, th){
+    let curCanvas = document.createElement('canvas');
+    curCanvas.width = img.naturalWidth || img.width;
+    curCanvas.height = img.naturalHeight || img.height;
+    let ctx = curCanvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    let curW = curCanvas.width, curH = curCanvas.height;
+
+    while(curW < tw || curH < th){
+      const nextW = Math.min(tw, Math.round(curW * 2));
+      const nextH = Math.min(th, Math.round(curH * 2));
+      const next = document.createElement('canvas');
+      next.width = nextW; next.height = nextH;
+      const nctx = next.getContext('2d');
+      nctx.imageSmoothingEnabled = true;
+      nctx.imageSmoothingQuality = 'high';
+      nctx.drawImage(curCanvas, 0, 0, nextW, nextH);
+      curCanvas = next; curW = nextW; curH = nextH;
+      if(curW >= tw && curH >= th) break;
+    }
+
+    if(curW !== tw || curH !== th){
+      const finalC = document.createElement('canvas');
+      finalC.width = tw; finalC.height = th;
+      const fctx = finalC.getContext('2d');
+      fctx.imageSmoothingEnabled = true;
+      fctx.imageSmoothingQuality = 'high';
+      fctx.drawImage(curCanvas, 0, 0, tw, th);
+      curCanvas = finalC;
+    }
+    return curCanvas;
+  }
+
+  // light box blur, used only as a denoise pass mixed back in at low strength
+  function boxBlur(data, w, h, radius){
+    const src = data;
+    const out = new Uint8ClampedArray(src.length);
+    const r = radius;
+    // horizontal pass
+    const tmp = new Uint8ClampedArray(src.length);
+    for(let y=0; y<h; y++){
+      let rSum=0,gSum=0,bSum=0,count=0;
+      const rowOff = y*w*4;
+      for(let x=-r; x<=r; x++){
+        const xx = Math.min(w-1, Math.max(0,x));
+        const i = rowOff + xx*4;
+        rSum+=src[i]; gSum+=src[i+1]; bSum+=src[i+2]; count++;
+      }
+      for(let x=0; x<w; x++){
+        const i = rowOff + x*4;
+        tmp[i]=rSum/count; tmp[i+1]=gSum/count; tmp[i+2]=bSum/count; tmp[i+3]=src[i+3];
+        const addX = Math.min(w-1, x+r+1);
+        const remX = Math.max(0, x-r);
+        const addI = rowOff+addX*4, remI = rowOff+remX*4;
+        rSum += src[addI]-src[remI]; gSum += src[addI+1]-src[remI+1]; bSum += src[addI+2]-src[remI+2];
+      }
+    }
+    // vertical pass
+    for(let x=0; x<w; x++){
+      let rSum=0,gSum=0,bSum=0,count=0;
+      for(let y=-r; y<=r; y++){
+        const yy = Math.min(h-1, Math.max(0,y));
+        const i = (yy*w+x)*4;
+        rSum+=tmp[i]; gSum+=tmp[i+1]; bSum+=tmp[i+2]; count++;
+      }
+      for(let y=0; y<h; y++){
+        const i=(y*w+x)*4;
+        out[i]=rSum/count; out[i+1]=gSum/count; out[i+2]=bSum/count; out[i+3]=tmp[i+3];
+        const addY = Math.min(h-1, y+r+1);
+        const remY = Math.max(0, y-r);
+        const addI=(addY*w+x)*4, remI=(remY*w+x)*4;
+        rSum += tmp[addI]-tmp[remI]; gSum += tmp[addI+1]-tmp[remI+1]; bSum += tmp[addI+2]-tmp[remI+2];
+      }
+    }
+    return out;
+  }
+
+  function enhance(canvas, opts){
+    const w = canvas.width, h = canvas.height;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.getImageData(0,0,w,h);
+    let data = imgData.data;
+
+    // 1) optional denoise: blend a light blur back in at low strength to knock down noise/compression artifacts
+    if(opts.denoise){
+      const blurred = boxBlur(data, w, h, 1);
+      const mix = 0.35;
+      for(let i=0;i<data.length;i+=4){
+        data[i]   = data[i]  *(1-mix) + blurred[i]  *mix;
+        data[i+1] = data[i+1]*(1-mix) + blurred[i+1]*mix;
+        data[i+2] = data[i+2]*(1-mix) + blurred[i+2]*mix;
+      }
+    }
+
+    // 2) contrast + saturation (fast per-pixel pass)
+    const c = opts.contrast/100;              // -0.4..0.4
+    const contrastFactor = (259*(c*255+255)) / (255*(259-c*255));
+    const s = 1 + opts.sat/100;               // saturation multiplier
+
+    for(let i=0;i<data.length;i+=4){
+      let r=data[i], g=data[i+1], b=data[i+2];
+      // contrast
+      r = contrastFactor*(r-128)+128;
+      g = contrastFactor*(g-128)+128;
+      b = contrastFactor*(b-128)+128;
+      // saturation
+      const gray = 0.299*r + 0.587*g + 0.114*b;
+      r = gray + (r-gray)*s;
+      g = gray + (g-gray)*s;
+      b = gray + (b-gray)*s;
+      data[i]=r; data[i+1]=g; data[i+2]=b;
+    }
+
+    // 3) unsharp mask for sharpening / "detail recovery"
+    if(opts.sharp > 0){
+      const amount = opts.sharp/100 * 1.5; // 0..1.5
+      const blurred = boxBlur(data, w, h, 1);
+      for(let i=0;i<data.length;i+=4){
+        data[i]   = data[i]   + (data[i]  -blurred[i])  *amount;
+        data[i+1] = data[i+1] + (data[i+1]-blurred[i+1])*amount;
+        data[i+2] = data[i+2] + (data[i+2]-blurred[i+2])*amount;
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+    return canvas;
+  }
+
+  async function processJob(job){
+    if(!job.srcImg) return;
+    job.status = 'working';
+    renderFilmstrip();
+    // yield to the browser so the UI can repaint "processing…" before the heavy loop
+    await new Promise(r => setTimeout(r, 20));
+
+    const { tw, th } = targetDims(job.w, job.h);
+    let canvas = upscaleStepwise(job.srcImg, tw, th);
+    canvas = enhance(canvas, {
+      denoise: denoiseOn,
+      sharp: +sharp.value,
+      contrast: +contrast.value,
+      sat: +sat.value
+    });
+    job.resultCanvas = canvas;
+    job.status = 'done';
+    renderFilmstrip();
+    updateGlobalButtons();
+    if(activeId === job.id) showJob(job.id);
+  }
+
+  processBtn.addEventListener('click', async () => {
+    const job = jobs.find(j => j.id === activeId);
+    if(!job) return;
+    processBtn.disabled = true;
+    statusNote.innerHTML = '<b>Processing…</b> Resampling and enhancing this photo in your browser.';
+    await processJob(job);
+    processBtn.disabled = false;
+    statusNote.innerHTML = '<b>Done.</b> Drag the divider on the preview to compare, then save when you\'re happy with it.';
+  });
+
+  processAllBtn.addEventListener('click', async () => {
+    processAllBtn.disabled = true;
+    for(const job of jobs){
+      if(job.srcImg){
+        statusNote.innerHTML = '<b>Processing '+job.name+'…</b> ('+ (jobs.indexOf(job)+1) +' of '+jobs.length+')';
+        await processJob(job);
+      }
+    }
+    statusNote.innerHTML = '<b>Batch complete.</b> All queued photos have been enhanced — save them individually or as a .zip.';
+    updateGlobalButtons();
+  });
+
+  // ---------- saving ----------
+  function canvasToBlob(canvas){
+    return new Promise(resolve => canvas.toBlob(b => resolve(b), 'image/png'));
+  }
+
+  function outputName(job){
+    const dot = job.name.lastIndexOf('.');
+    const base = dot > -1 ? job.name.slice(0, dot) : job.name;
+    return base + '_enhanced_4k.png';
+  }
+
+  async function saveBlob(blob, filename){
+    // Prefer the File System Access API so the user can pick an actual folder ("save to local path").
+    if(window.showSaveFilePicker){
+      try{
+        const handle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{ description: 'PNG image', accept: {'image/png': ['.png']} }]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return true;
+      }catch(err){
+        if(err && err.name === 'AbortError') return false; // user cancelled the picker
+        // fall through to plain download on any other failure
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return true;
+  }
+
+  saveBtn.addEventListener('click', async () => {
+    const job = jobs.find(j => j.id === activeId);
+    if(!job || !job.resultCanvas) return;
+    const blob = await canvasToBlob(job.resultCanvas);
+    statusNote.innerHTML = '<b>Saving…</b>';
+    const ok = await saveBlob(blob, outputName(job));
+    statusNote.innerHTML = ok ? '<b>Saved.</b> Check your chosen folder or downloads.' : '<b>Save cancelled.</b>';
+  });
+
+  saveAllBtn.addEventListener('click', async () => {
+    const done = jobs.filter(j => j.resultCanvas);
+    if(!done.length) return;
+    statusNote.innerHTML = '<b>Packing .zip…</b>';
+    const zip = new JSZip();
+    for(const job of done){
+      const blob = await canvasToBlob(job.resultCanvas);
+      zip.file(outputName(job), blob);
+    }
+    const zipBlob = await zip.generateAsync({type:'blob'});
+    await saveBlob(zipBlob, 'enhanced_photos_4k.zip');
+    statusNote.innerHTML = '<b>Batch saved.</b> All '+done.length+' enhanced photos are in the .zip.';
+  });
+
+})();
+</script>
+</body>
+</html>
